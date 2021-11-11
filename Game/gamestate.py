@@ -1,6 +1,7 @@
-import typing
+"""This file contains the all the code used to run the airhockey game"""
 
-import numpy
+import math
+import typing
 import numpy as np
 
 
@@ -18,15 +19,17 @@ class Gamestate:
     BOARD_CENTER_Y = BOARD_HEIGHT / 2
 
     GOAL_SIZE = 120
-    GOAL_Y = BOARD_HEIGHT - (GOAL_SIZE / 2)
+    GOAL_MIN_Y = BOARD_HEIGHT - (GOAL_SIZE / 2)
+    GOAL_MAX_Y = GOAL_MIN_Y + GOAL_SIZE
 
     STRIKER_CENTER_OFFSET = 200
     LEFT_STRIKER_STARTING_X = BOARD_CENTER_X - STRIKER_CENTER_OFFSET
-    LEFT_STRIKER_STARTING_Y = BOARD_CENTER_Y - STRIKER_CENTER_OFFSET
+    LEFT_STRIKER_STARTING_Y = 0
     RIGHT_STRIKER_STARTING_X = BOARD_CENTER_X + STRIKER_CENTER_OFFSET
-    RIGHT_STRIKER_STARTING_Y = BOARD_CENTER_Y + STRIKER_CENTER_OFFSET
+    RIGHT_STRIKER_STARTING_Y = 0
 
     LEFT, RIGHT = False, True
+    BOTTOM, TOP = False, True
 
     # endregion Environment Positions
 
@@ -59,6 +62,9 @@ class Gamestate:
         # The cooldown in frames after the striker has stopped moving
         MAX_COOLDOWN = 30
 
+        # The percentage of energy transferred between a striker and a ball
+        ENERGY_TRANSFER = 0.8
+
         def __init__(self, side):
             """Creates an unmoving striker of the given side"""
 
@@ -66,11 +72,11 @@ class Gamestate:
             self._velocity = np.zeros(2)
             self._cooldown = self.MAX_COOLDOWN
 
-            # Check Starting Side
+            # Set the starting position
             if side == Gamestate.LEFT:
-                self.position = np.array([[Gamestate.LEFT_STRIKER_STARTING_X], [Gamestate.LEFT_STRIKER_STARTING_Y]])
+                self._position = np.array([Gamestate.LEFT_STRIKER_STARTING_X], [Gamestate.LEFT_STRIKER_STARTING_Y])
             else:
-                self.position = np.array([[Gamestate.RIGHT_STRIKER_STARTING_X], [Gamestate.RIGHT_STRIKER_STARTING_Y]])
+                self._position = np.array([Gamestate.RIGHT_STRIKER_STARTING_X], [Gamestate.RIGHT_STRIKER_STARTING_Y])
 
         def set_velocity(self, velocity: np.array) -> bool:
             """Sets the velocity, and checks if the striker can move
@@ -80,12 +86,50 @@ class Gamestate:
             :returns True/False if the striker could/couldn't move
             """
 
-            if self._cooldown == self.MAX_COOLDOWN:
+            if (self._cooldown == self.MAX_COOLDOWN) and :
                 self._velocity = velocity
                 return True
             else:
                 return False
 
+        def find_closeness(self, ball):
+            """Returns the striker's closeness to the ball and walls in their direction, in terms of ticks until
+            contact.
+
+            :returns (ball_distance, horizontal_wall_distance, horizontal_wall_type - LEFT or RIGHT,
+                      vertical_wall_distance, vertical_wall_type - TOP or BOTTOM)
+            """
+
+            ball_distance = math.sqrt(((ball._position[0] - self._position[0]) ** 2
+                                       + (ball._position[1] - self._position[1]) ** 2
+                                       - (Gamestate.Ball.RADIUS - self.RADIUS) ** 2)
+                                      / ((ball._velocity[0] - self._velocity[0])**2
+                                         + (ball._velocity[1] - self._velocity[1])**2))
+
+            # Get Horizontal Wall Distance
+            if self._velocity[0] > 0:
+                horizontal_wall_distance =
+                horizontal_wall_type = Gamestate.RIGHT
+            elif self._velocity[0] < 0:
+                horizontal_wall_distance = 1
+                horizontal_wall_type = Gamestate.LEFT
+            else:
+                horizontal_wall_distance = None
+                horizontal_wall_type = None
+
+            # Get Vertical Wall Distance
+            if self._velocity[1] > 0:
+                vertical_wall_distance = 1
+                vertical_wall_type = Gamestate.TOP
+            elif self._velocity[1] < 0:
+                vertical_wall_distance = 1
+                vertical_wall_type = Gamestate.BOTTOM
+            else:
+                vertical_wall_distance = None
+                vertical_wall_type = None
+
+            return (ball_distance, horizontal_wall_distance, horizontal_wall_type,
+                    vertical_wall_distance, vertical_wall_type)
 
     class Ball:
         """This class describes the game ball used to score points"""
@@ -95,37 +139,63 @@ class Gamestate:
 
         def __init__(self):
             """Creates an unmoving ball at the center of the field"""
-            self.position = np.zeros((2, 1))
-            self.velocity = np.zeros((2, 1))
+            self._position = np.zeros(2)
+            self._velocity = np.zeros(2)
 
-    def tick(self, left_agent_input: numpy.array, right_agent_input: np.array) -> np.array:
+        def in_goal(self) -> typing.Union[(bool, (bool, bool))]:
+            """Returns whether the ball has scored a goal, and which goal was scored on
+            Ex: (True, RIGHT) if the ball went into the right goal
+
+            :returns False if not, (True, LEFT or RIGHT) if true
+            """
+
+            # Check if y is within the correct bounds
+            if (self._position[1] >= Gamestate.GOAL_MIN_Y) and (self._position[1] <= Gamestate.GOAL_MAX_Y):
+                # Check if x is within the correct bounds
+                if self._position[0] < self.RADIUS:
+                    return True, Gamestate.LEFT
+                elif self._position[0] > Gamestate.BOARD_WIDTH - self.RADIUS:
+                    return True, Gamestate.RIGHT
+                # Not within goal bounds
+                else:
+                    return False,
+
+    def tick(self, left_agent_input: np.array, right_agent_input: np.array) -> typing.Union[np.array, bool]:
         """Steps through a single frame of the game
 
         :param left_agent_input  -- the left agent's input, in the form [velocity (0-1), want_to_move (True-False)]
         :param right_agent_input -- the right agent's input, in the form [velocity (0-1), want_to_move (True-False)]
 
-        :returns A np column with the form [left_striker_x, left_striker_y, left_striker_x_velocity, 
+        :returns A np array with the form [left_striker_x, left_striker_y, left_striker_x_velocity,
                                             left_striker_y_velocity, left_striker_cooldown, left_striker_can_move,
                                             right_striker_x, right_striker_y, right_striker_x_velocity, 
                                             right_striker_y_velocity, right_striker_cooldown, right_striker_can_move,
                                             ball_x, ball_y, ball_x_velocity, ball_y_velocity]
+                or LEFT or RIGHT for a goal score
         """
+
+        # Calculate how close everything will be to one another
 
         # Update the Strikers
 
         # Update the Ball
 
         # Check for Goals
+        goal = self.ball.in_goal()
+        if goal[0]: return goal[1]
 
         return np.array([])
 
-    def wall_collision(self, instance: typing.Union[Striker, Ball], wall_x, wall_y):
+    def wall_collision(self, instance: typing.Union[Striker, Ball], wall_x: float, wall_y: float):
         pass
 
     def ball_collision(self, striker: Striker):
         """"""
 
-    def game_end(self):
-        """Ends the game and rewards the agents."""
+    def game_end(self, winning_side: bool) -> np.array():
+        """Ends the game and rewards the agents
 
-        pass
+        :returns A np array with the form [left_agent_reward, right_agent_reward]
+        """
+
+        return np.array([1, 0]) if winning_side == Gamestate.LEFT else np.array([0, 1])
