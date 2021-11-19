@@ -1,4 +1,4 @@
-"""This file contains the all the code used to run the airhockey game"""
+"""This file contains the all the code used to run the Air Hockey game"""
 
 import math
 import typing
@@ -14,22 +14,29 @@ class Gamestate:
     # region Environment Positions
 
     BOARD_WIDTH = 600
-    BOARD_HEIGHT = 200
+    BOARD_HEIGHT = 400
     BOARD_CENTER_X = BOARD_WIDTH / 2
     BOARD_CENTER_Y = BOARD_HEIGHT / 2
 
     GOAL_SIZE = 120
-    GOAL_MIN_Y = BOARD_HEIGHT - (GOAL_SIZE / 2)
+    GOAL_MIN_Y = BOARD_CENTER_Y - (GOAL_SIZE / 2)
     GOAL_MAX_Y = GOAL_MIN_Y + GOAL_SIZE
 
     STRIKER_CENTER_OFFSET = 200
     LEFT_STRIKER_STARTING_X = BOARD_CENTER_X - STRIKER_CENTER_OFFSET
-    LEFT_STRIKER_STARTING_Y = 0
+    LEFT_STRIKER_STARTING_Y = BOARD_CENTER_Y
     RIGHT_STRIKER_STARTING_X = BOARD_CENTER_X + STRIKER_CENTER_OFFSET
-    RIGHT_STRIKER_STARTING_Y = 0
+    RIGHT_STRIKER_STARTING_Y = BOARD_CENTER_Y
 
-    LEFT, RIGHT = False, True
-    BOTTOM, TOP = False, True
+    LEFT, RIGHT, BOTTOM, TOP = 1, 2, 3, 4
+
+    COLLISION = {"BALL_LEFT_STRIKER": 0, "BALL_RIGHT_STRIKER": 1, "BALL_VERTICAL_WALL": 2, "BALL_HORIZONTAL_WALL": 3,
+                 "LEFT_STRIKER_HORIZONTAL_WALL": 4, "LEFT_STRIKER_VERTICAL_WALL": 5,
+                 "RIGHT_STRIKER_HORIZONTAL_WALL": 6, "RIGHT_STRIKER_VERTICAL_WALL": 7}
+
+    ALL_COLLISIONS = [True] * 8
+
+    NOT_CLOSE = 1000
 
     # endregion Environment Positions
 
@@ -57,7 +64,7 @@ class Gamestate:
         """
 
         # The radius of the striker circle
-        RADIUS = 20
+        RADIUS = 10
 
         # The cooldown in frames after the striker has stopped moving
         MAX_COOLDOWN = 30
@@ -65,71 +72,76 @@ class Gamestate:
         # The percentage of energy transferred between a striker and a ball
         ENERGY_TRANSFER = 0.8
 
-        def __init__(self, side):
+        def __init__(self, side: int):
             """Creates an unmoving striker of the given side"""
 
             self.side = side
-            self._velocity = np.zeros(2)
+            self.velocity = np.zeros(2)
             self._cooldown = self.MAX_COOLDOWN
 
             # Set the starting position
             if side == Gamestate.LEFT:
-                self._position = np.array([Gamestate.LEFT_STRIKER_STARTING_X], [Gamestate.LEFT_STRIKER_STARTING_Y])
+                self.position = np.array([Gamestate.LEFT_STRIKER_STARTING_X, Gamestate.LEFT_STRIKER_STARTING_Y])
             else:
-                self._position = np.array([Gamestate.RIGHT_STRIKER_STARTING_X], [Gamestate.RIGHT_STRIKER_STARTING_Y])
+                self.position = np.array([Gamestate.RIGHT_STRIKER_STARTING_X, Gamestate.RIGHT_STRIKER_STARTING_Y])
 
         def set_velocity(self, velocity: np.array) -> bool:
             """Sets the velocity, and checks if the striker can move
+            The striker can move if it is off cooldown and if it is not moving
 
             :param velocity  -- the left agent's input, in the form [velocity (0-1), want_to_move (True-False)]
 
             :returns True/False if the striker could/couldn't move
             """
 
-            if (self._cooldown == self.MAX_COOLDOWN) and :
-                self._velocity = velocity
+            # Set velocity if the cooldown is at max and if the velocity is at 0
+            if (self._cooldown == self.MAX_COOLDOWN) and (self.velocity == np.zeros(2)):
+                self.velocity = velocity
+                self._cooldown = self.MAX_COOLDOWN
                 return True
             else:
                 return False
 
-        def find_closeness(self, ball):
-            """Returns the striker's closeness to the ball and walls in their direction, in terms of ticks until
-            contact.
+        def find_wall_closeness(self) -> (float, int, float, int):
+            """Returns the striker's closeness to the horizontal and vertical wall in it's direction,
+            in terms of ticks until contact.
 
-            :returns (ball_distance, horizontal_wall_distance, horizontal_wall_type - LEFT or RIGHT,
+            :returns (horizontal_wall_distance, horizontal_wall_type - LEFT or RIGHT,
                       vertical_wall_distance, vertical_wall_type - TOP or BOTTOM)
             """
 
-            ball_distance = math.sqrt(((ball._position[0] - self._position[0]) ** 2
-                                       + (ball._position[1] - self._position[1]) ** 2
-                                       - (Gamestate.Ball.RADIUS - self.RADIUS) ** 2)
-                                      / ((ball._velocity[0] - self._velocity[0])**2
-                                         + (ball._velocity[1] - self._velocity[1])**2))
-
             # Get Horizontal Wall Distance
-            if self._velocity[0] > 0:
-                horizontal_wall_distance =
+            if self.velocity[0] > 0:
+                if self.side == Gamestate.RIGHT:
+                    horizontal_wall_distance = (Gamestate.BOARD_WIDTH - self.position[0] - self.RADIUS) \
+                                               / self.velocity[0]
+                else:
+                    horizontal_wall_distance = (Gamestate.BOARD_CENTER_X - self.position[0] - self.RADIUS) \
+                                               / self.velocity[0]
                 horizontal_wall_type = Gamestate.RIGHT
-            elif self._velocity[0] < 0:
-                horizontal_wall_distance = 1
+            elif self.velocity[0] < 0:
+                if self.side == Gamestate.RIGHT:
+                    horizontal_wall_distance = (self.position[0] - self.RADIUS) / -self.velocity[0]
+                else:
+                    horizontal_wall_distance = (Gamestate.BOARD_CENTER_X - self.position[0] - self.RADIUS) \
+                                               / -self.velocity[0]
                 horizontal_wall_type = Gamestate.LEFT
             else:
-                horizontal_wall_distance = None
-                horizontal_wall_type = None
+                horizontal_wall_distance = Gamestate.NOT_CLOSE
+                horizontal_wall_type = Gamestate.NOT_CLOSE
 
             # Get Vertical Wall Distance
-            if self._velocity[1] > 0:
-                vertical_wall_distance = 1
+            if self.velocity[1] > 0:
+                vertical_wall_distance = (Gamestate.BOARD_HEIGHT - self.position[1] - self.RADIUS) / self.velocity[1]
                 vertical_wall_type = Gamestate.TOP
-            elif self._velocity[1] < 0:
-                vertical_wall_distance = 1
+            elif self.velocity[1] < 0:
+                vertical_wall_distance = (self.position[1] - self.RADIUS) / -self.velocity[1]
                 vertical_wall_type = Gamestate.BOTTOM
             else:
-                vertical_wall_distance = None
-                vertical_wall_type = None
+                vertical_wall_distance = Gamestate.NOT_CLOSE
+                vertical_wall_type = Gamestate.NOT_CLOSE
 
-            return (ball_distance, horizontal_wall_distance, horizontal_wall_type,
-                    vertical_wall_distance, vertical_wall_type)
+            return horizontal_wall_distance, horizontal_wall_type, vertical_wall_distance, vertical_wall_type
 
     class Ball:
         """This class describes the game ball used to score points"""
@@ -139,28 +151,210 @@ class Gamestate:
 
         def __init__(self):
             """Creates an unmoving ball at the center of the field"""
-            self._position = np.zeros(2)
-            self._velocity = np.zeros(2)
+            self.position = np.array([Gamestate.BOARD_WIDTH / 2, Gamestate.BOARD_HEIGHT / 2])
+            self.velocity = np.zeros(2)
 
-        def in_goal(self) -> typing.Union[(bool, (bool, bool))]:
-            """Returns whether the ball has scored a goal, and which goal was scored on
-            Ex: (True, RIGHT) if the ball went into the right goal
+        def find_wall_closeness(self) -> (float, int, float, int):
+            """Returns the striker's closeness to the horizontal and vertical wall in it's direction,
+            in terms of ticks until contact.
 
-            :returns False if not, (True, LEFT or RIGHT) if true
+            :returns (horizontal_wall_distance, horizontal_wall_type - LEFT or RIGHT,
+                      vertical_wall_distance, vertical_wall_type - TOP or BOTTOM)
             """
 
-            # Check if y is within the correct bounds
-            if (self._position[1] >= Gamestate.GOAL_MIN_Y) and (self._position[1] <= Gamestate.GOAL_MAX_Y):
-                # Check if x is within the correct bounds
-                if self._position[0] < self.RADIUS:
-                    return True, Gamestate.LEFT
-                elif self._position[0] > Gamestate.BOARD_WIDTH - self.RADIUS:
-                    return True, Gamestate.RIGHT
-                # Not within goal bounds
-                else:
-                    return False,
+            # Get Horizontal Wall Distance
+            if self.velocity[0] > 0:
+                horizontal_wall_distance = (Gamestate.BOARD_WIDTH - self.position[0] - self.RADIUS) / self.velocity[0]
+                horizontal_wall_type = Gamestate.RIGHT
+            elif self.velocity[0] < 0:
+                horizontal_wall_distance = (self.position[0] - self.RADIUS) / -self.velocity[0]
+                horizontal_wall_type = Gamestate.LEFT
+            else:
+                horizontal_wall_distance = Gamestate.NOT_CLOSE
+                horizontal_wall_type = Gamestate.NOT_CLOSE
 
-    def tick(self, left_agent_input: np.array, right_agent_input: np.array) -> typing.Union[np.array, bool]:
+            # Get Vertical Wall Distance
+            if self.velocity[1] > 0:
+                vertical_wall_distance = (Gamestate.BOARD_HEIGHT - self.position[1] - self.RADIUS) / self.velocity[1]
+                vertical_wall_type = Gamestate.TOP
+            elif self.velocity[1] < 0:
+                vertical_wall_distance = (self.position[1] - self.RADIUS) / -self.velocity[1]
+                vertical_wall_type = Gamestate.BOTTOM
+            else:
+                vertical_wall_distance = Gamestate.NOT_CLOSE
+                vertical_wall_type = Gamestate.NOT_CLOSE
+
+            return horizontal_wall_distance, horizontal_wall_type, vertical_wall_distance, vertical_wall_type
+
+    def ball_distance_to_striker(self, striker: Striker) -> float:
+        """Returns the distance in frames from the ball to a given striker
+
+        :param striker - The striker to the ball's distance from
+        """
+
+        # Find the differences in velocity and position
+        pos_diff = self.ball.position - striker.position
+        vel_diff = self.ball.velocity - striker.velocity
+
+        # Check the overall velocity
+        b = (pos_diff[0] * vel_diff[0]) + (pos_diff[1] * vel_diff[1])
+
+        # If the striker is not nearing the ball, exit now
+        if b >= 0: return Gamestate.NOT_CLOSE
+
+        # Find components of quadratic
+        a = (vel_diff[0] ** 2) + (vel_diff[1] ** 2)
+        b = 2 * b
+        c = (pos_diff[0] ** 2) + (pos_diff[1] ** 2) - ((self.ball.RADIUS + striker.RADIUS) ** 2)
+
+        # Check if the ball and striker will not collide
+        if b ** 2 < 4 * a * c: return Gamestate.NOT_CLOSE
+
+        # Find both of the potential times
+        contact_1 = (-b + math.sqrt((b ** 2) - (4 * a * c))) / (2 * a)
+        contact_2 = (-b - math.sqrt((b ** 2) - (4 * a * c))) / (2 * a)
+
+        # Return the first time the circles contact
+        return min(contact_1, contact_2)
+
+    def wall_collision(self, instance: typing.Union[Striker, Ball], wall: int):
+        """Calculates a collision with the given striker. Returns the remaining velocity.
+
+        :param instance - The instance the calculate collisions with
+        :param wall - The wall collided with
+        """
+
+        # Check the given wall
+        if (wall == Gamestate.TOP) or (wall == Gamestate.BOTTOM):
+            # If it is a horizontal wall
+
+            # Remove small errors in y
+            instance.position[1] = round(instance.position[1])
+
+            # Invert the y velocity
+            instance.velocity[1] = -instance.velocity[1]
+
+        else:
+            # If it is a vertical wall
+
+            # Remove small errors in x
+            instance.position[0] = round(instance.position[0])
+
+            # Update the x velocity
+            instance.velocity[0] = -instance.velocity[0]
+
+    def ball_collision(self, striker: Striker):
+        """Calculates the collision between a given striker and the ball. Returns the remaining frames.
+
+        :param striker - The striker the calculate collisions with
+        """
+
+        # region Update Velocities
+
+        # Calculate the difference in positions
+        pos_diff = self.ball.position - striker.position
+
+        # Find the velocity of the ball
+        self.ball.velocity = self.ball.velocity \
+                             - (((self.ball.velocity - striker.velocity).dot(pos_diff) /
+                                 np.linalg.norm(pos_diff) ** 2) * pos_diff)
+
+        # Find the velocity of the striker
+        striker.velocity = striker.velocity \
+                           - (((striker.velocity - self.ball.velocity).dot(-pos_diff) /
+                               np.linalg.norm(pos_diff) ** 2) * -pos_diff)
+
+        print(striker.velocity)
+
+        # endregion Update Velocities
+
+    def increment_positions(self, frames: float):
+        """Increments the positions of the ball and strikers by their velocity, given a span of time (frames).
+
+        :param frames - The number of frames to increment the positions by
+        """
+
+        self.ball.position += self.ball.velocity * frames
+        self.left_striker.position += self.left_striker.velocity * frames
+        self.right_striker.position += self.right_striker.velocity * frames
+
+    def calculate_collisions(self, frames_remaining: float, previous_collision: int):
+        """Calculates the number of frames before each collision. Run the closest one.
+        This function will be recalled by collisions, to check for subsequent collisions, which previously were not
+        detected.
+        """
+
+        # A list of collisions to check
+        collision_list = [self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE]
+
+        # Calculate how close everything will be to one another, in terms of frames
+        if previous_collision != 0: collision_list[0] = self.ball_distance_to_striker(self.left_striker)
+        if previous_collision != 1: collision_list[1] = self.ball_distance_to_striker(self.right_striker)
+        if previous_collision != 2:
+            ball_closeness = self.ball.find_wall_closeness()
+            collision_list[2] = ball_closeness[0]
+        if previous_collision != 3:
+            left_striker_closeness = self.left_striker.find_wall_closeness()
+            collision_list[3] = left_striker_closeness[0]
+        if previous_collision != 4:
+            right_striker_closeness = self.right_striker.find_wall_closeness()
+            collision_list[4] = right_striker_closeness[0]
+
+        # Sort the smallest distance
+        shortest_distance = min(collision_list)
+
+        print(collision_list)
+
+        # Check if any collisions occur this frame
+        if shortest_distance <= frames_remaining:
+            # If there is a collision this frame
+
+            # Increment all positions
+            self.increment_positions(shortest_distance)
+
+            # Remove the remaining frames
+            frames_remaining -= shortest_distance
+
+            # Run the collision for the shortest distance
+            if shortest_distance == ball_distance_to_left_striker:
+                # If the first collision is the ball and left striker
+                self.ball_collision(self.left_striker)
+
+            elif shortest_distance == ball_distance_to_right_striker:
+                # If the first collision is the ball and right striker
+                self.ball_collision(self.right_striker)
+
+            elif shortest_distance == ball_distance_to_walls[0]:
+                # If the first collision is the ball and a horizontal wall
+                self.wall_collision(self.ball, ball_distance_to_walls[1])
+
+            elif shortest_distance == ball_distance_to_walls[2]:
+                # If the first collision is the ball and a vertical wall
+                self.wall_collision(self.ball, ball_distance_to_walls[3])
+
+            elif shortest_distance == left_striker_distance_to_walls[0]:
+                # If the first collision is the left striker and a horizontal wall
+                self.wall_collision(self.left_striker, left_striker_distance_to_walls[1])
+
+            elif shortest_distance == left_striker_distance_to_walls[2]:
+                # If the first collision is the left striker and a vertical wall
+                self.wall_collision(self.left_striker, left_striker_distance_to_walls[3])
+
+            elif shortest_distance == right_striker_distance_to_walls[0]:
+                # If the first collision is the right striker and a horizontal wall
+                self.wall_collision(self.right_striker, right_striker_distance_to_walls[1])
+
+            else:
+                # If the first collision is the right striker and a vertical wall
+                self.wall_collision(self.right_striker, right_striker_distance_to_walls[3])
+
+            # Recalculate Collisions in case there are any new collisions due to previous ones
+            self.calculate_collisions(frames_remaining)
+        else:
+            # If there were no collisions in this check, increment the positions the rest of the way
+            self.increment_positions(frames_remaining)
+
+    def tick(self, left_agent_input: np.array, right_agent_input: np.array) -> typing.Union[np.array, int]:
         """Steps through a single frame of the game
 
         :param left_agent_input  -- the left agent's input, in the form [velocity (0-1), want_to_move (True-False)]
@@ -168,34 +362,14 @@ class Gamestate:
 
         :returns A np array with the form [left_striker_x, left_striker_y, left_striker_x_velocity,
                                             left_striker_y_velocity, left_striker_cooldown, left_striker_can_move,
-                                            right_striker_x, right_striker_y, right_striker_x_velocity, 
+                                            right_striker_x, right_striker_y, right_striker_x_velocity,
                                             right_striker_y_velocity, right_striker_cooldown, right_striker_can_move,
                                             ball_x, ball_y, ball_x_velocity, ball_y_velocity]
                 or LEFT or RIGHT for a goal score
         """
 
-        # Calculate how close everything will be to one another
+        # Calculate the collisions in order
+        self.calculate_collisions(1, self.ALL_COLLISIONS)
 
-        # Update the Strikers
-
-        # Update the Ball
-
-        # Check for Goals
-        goal = self.ball.in_goal()
-        if goal[0]: return goal[1]
-
+        # Return the current state
         return np.array([])
-
-    def wall_collision(self, instance: typing.Union[Striker, Ball], wall_x: float, wall_y: float):
-        pass
-
-    def ball_collision(self, striker: Striker):
-        """"""
-
-    def game_end(self, winning_side: bool) -> np.array():
-        """Ends the game and rewards the agents
-
-        :returns A np array with the form [left_agent_reward, right_agent_reward]
-        """
-
-        return np.array([1, 0]) if winning_side == Gamestate.LEFT else np.array([0, 1])
