@@ -30,13 +30,17 @@ class Gamestate:
 
     LEFT, RIGHT, BOTTOM, TOP = 1, 2, 3, 4
 
-    COLLISION = {"BALL_LEFT_STRIKER": 0, "BALL_RIGHT_STRIKER": 1, "BALL_VERTICAL_WALL": 2, "BALL_HORIZONTAL_WALL": 3,
+    COLLISION = {"BALL_LEFT_STRIKER": 0, "BALL_RIGHT_STRIKER": 1, "BALL_HORIZONTAL_WALL": 2, "BALL_VERTICAL_WALL": 3,
                  "LEFT_STRIKER_HORIZONTAL_WALL": 4, "LEFT_STRIKER_VERTICAL_WALL": 5,
                  "RIGHT_STRIKER_HORIZONTAL_WALL": 6, "RIGHT_STRIKER_VERTICAL_WALL": 7}
 
     ALL_COLLISIONS = [True] * 8
 
+    # A value used to represent non-colliding object's distances
     NOT_CLOSE = 1000
+
+    # The magnitude of speed lost per frame 
+    SLOWDOWN = 0.995
 
     # endregion Environment Positions
 
@@ -121,9 +125,9 @@ class Gamestate:
                 horizontal_wall_type = Gamestate.RIGHT
             elif self.velocity[0] < 0:
                 if self.side == Gamestate.RIGHT:
-                    horizontal_wall_distance = (self.position[0] - self.RADIUS) / -self.velocity[0]
+                    horizontal_wall_distance = (self.position[0] - Gamestate.BOARD_CENTER_X - self.RADIUS) / -self.velocity[0]
                 else:
-                    horizontal_wall_distance = (Gamestate.BOARD_CENTER_X - self.position[0] - self.RADIUS) \
+                    horizontal_wall_distance = (self.position[0] - self.RADIUS) \
                                                / -self.velocity[0]
                 horizontal_wall_type = Gamestate.LEFT
             else:
@@ -244,7 +248,7 @@ class Gamestate:
             instance.velocity[0] = -instance.velocity[0]
 
     def ball_collision(self, striker: Striker):
-        """Calculates the collision between a given striker and the ball. Returns the remaining frames.
+        """Calculates the collision between a given striker and the ball.
 
         :param striker - The striker the calculate collisions with
         """
@@ -253,18 +257,20 @@ class Gamestate:
 
         # Calculate the difference in positions
         pos_diff = self.ball.position - striker.position
+        pos_diff_mag = pos_diff[0]**2 + pos_diff[1]**2
+
+        # Store a copy of the ball's old velocity
+        ball_old_velocity = np.copy(self.ball.velocity)
 
         # Find the velocity of the ball
         self.ball.velocity = self.ball.velocity \
                              - (((self.ball.velocity - striker.velocity).dot(pos_diff) /
-                                 np.linalg.norm(pos_diff) ** 2) * pos_diff)
+                                 pos_diff_mag) * pos_diff)
 
         # Find the velocity of the striker
         striker.velocity = striker.velocity \
-                           - (((striker.velocity - self.ball.velocity).dot(-pos_diff) /
-                               np.linalg.norm(pos_diff) ** 2) * -pos_diff)
-
-        print(striker.velocity)
+                           - (((striker.velocity - ball_old_velocity).dot(-pos_diff) /
+                               pos_diff_mag) * -pos_diff)
 
         # endregion Update Velocities
 
@@ -285,25 +291,42 @@ class Gamestate:
         """
 
         # A list of collisions to check
-        collision_list = [self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE]
+        collision_list = [self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE,
+                          self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE]
 
         # Calculate how close everything will be to one another, in terms of frames
-        if previous_collision != 0: collision_list[0] = self.ball_distance_to_striker(self.left_striker)
-        if previous_collision != 1: collision_list[1] = self.ball_distance_to_striker(self.right_striker)
-        if previous_collision != 2:
-            ball_closeness = self.ball.find_wall_closeness()
-            collision_list[2] = ball_closeness[0]
-        if previous_collision != 3:
-            left_striker_closeness = self.left_striker.find_wall_closeness()
-            collision_list[3] = left_striker_closeness[0]
-        if previous_collision != 4:
-            right_striker_closeness = self.right_striker.find_wall_closeness()
-            collision_list[4] = right_striker_closeness[0]
+
+        # Check for ball-striker collisions
+        if previous_collision != self.COLLISION["BALL_LEFT_STRIKER"]:
+            collision_list[self.COLLISION["BALL_LEFT_STRIKER"]] = \
+                self.ball_distance_to_striker(self.left_striker)
+        if previous_collision != self.COLLISION["BALL_RIGHT_STRIKER"]: 
+            collision_list[self.COLLISION["BALL_RIGHT_STRIKER"]] = \
+                self.ball_distance_to_striker(self.right_striker)
+
+        # Check for ball-wall collisions
+        ball_closeness = self.ball.find_wall_closeness()
+        if previous_collision != self.COLLISION["BALL_HORIZONTAL_WALL"]:
+            collision_list[self.COLLISION["BALL_HORIZONTAL_WALL"]] = ball_closeness[0]
+        if previous_collision != self.COLLISION["BALL_VERTICAL_WALL"]:
+            collision_list[self.COLLISION["BALL_VERTICAL_WALL"]] = ball_closeness[2]
+
+        # Check for left_striker-wall collisions
+        left_striker_closeness = self.left_striker.find_wall_closeness()
+        if previous_collision != self.COLLISION["LEFT_STRIKER_HORIZONTAL_WALL"]:
+            collision_list[self.COLLISION["LEFT_STRIKER_HORIZONTAL_WALL"]] = left_striker_closeness[0]
+        if previous_collision != self.COLLISION["LEFT_STRIKER_VERTICAL_WALL"]:
+            collision_list[self.COLLISION["LEFT_STRIKER_VERTICAL_WALL"]] = left_striker_closeness[2]
+        
+        # Check for right_striker-wall collisions
+        right_striker_closeness = self.right_striker.find_wall_closeness()
+        if previous_collision != self.COLLISION["RIGHT_STRIKER_HORIZONTAL_WALL"]:
+            collision_list[self.COLLISION["RIGHT_STRIKER_HORIZONTAL_WALL"]] = right_striker_closeness[0]
+        if previous_collision != self.COLLISION["RIGHT_STRIKER_VERTICAL_WALL"]:
+            collision_list[self.COLLISION["RIGHT_STRIKER_VERTICAL_WALL"]] = right_striker_closeness[2]
 
         # Sort the smallest distance
         shortest_distance = min(collision_list)
-
-        print(collision_list)
 
         # Check if any collisions occur this frame
         if shortest_distance <= frames_remaining:
@@ -315,41 +338,52 @@ class Gamestate:
             # Remove the remaining frames
             frames_remaining -= shortest_distance
 
+            # Tracks which collision occurs
+            collision = None
+
             # Run the collision for the shortest distance
-            if shortest_distance == ball_distance_to_left_striker:
+            if shortest_distance == collision_list[self.COLLISION["BALL_LEFT_STRIKER"]]:
                 # If the first collision is the ball and left striker
                 self.ball_collision(self.left_striker)
+                collision = self.COLLISION["BALL_LEFT_STRIKER"]
 
-            elif shortest_distance == ball_distance_to_right_striker:
+            elif shortest_distance == collision_list[self.COLLISION["BALL_RIGHT_STRIKER"]]:
                 # If the first collision is the ball and right striker
                 self.ball_collision(self.right_striker)
+                collision = self.COLLISION["BALL_RIGHT_STRIKER"]
 
-            elif shortest_distance == ball_distance_to_walls[0]:
+            elif shortest_distance == collision_list[self.COLLISION["BALL_HORIZONTAL_WALL"]]:
                 # If the first collision is the ball and a horizontal wall
-                self.wall_collision(self.ball, ball_distance_to_walls[1])
+                self.wall_collision(self.ball, ball_closeness[1])
+                collision = self.COLLISION["BALL_HORIZONTAL_WALL"]
 
-            elif shortest_distance == ball_distance_to_walls[2]:
+            elif shortest_distance == collision_list[self.COLLISION["BALL_VERTICAL_WALL"]]:
                 # If the first collision is the ball and a vertical wall
-                self.wall_collision(self.ball, ball_distance_to_walls[3])
+                self.wall_collision(self.ball, ball_closeness[3])
+                collision = self.COLLISION["BALL_VERTICAL_WALL"]
 
-            elif shortest_distance == left_striker_distance_to_walls[0]:
+            elif shortest_distance == collision_list[self.COLLISION["LEFT_STRIKER_HORIZONTAL_WALL"]]:
                 # If the first collision is the left striker and a horizontal wall
-                self.wall_collision(self.left_striker, left_striker_distance_to_walls[1])
+                self.wall_collision(self.left_striker, left_striker_closeness[1])
+                collision = self.COLLISION["LEFT_STRIKER_HORIZONTAL_WALL"]
 
-            elif shortest_distance == left_striker_distance_to_walls[2]:
+            elif shortest_distance == collision_list[self.COLLISION["LEFT_STRIKER_VERTICAL_WALL"]]:
                 # If the first collision is the left striker and a vertical wall
-                self.wall_collision(self.left_striker, left_striker_distance_to_walls[3])
+                self.wall_collision(self.left_striker, left_striker_closeness[3])
+                collision = self.COLLISION["LEFT_STRIKER_VERTICAL_WALL"]
 
-            elif shortest_distance == right_striker_distance_to_walls[0]:
+            elif shortest_distance == collision_list[self.COLLISION["RIGHT_STRIKER_HORIZONTAL_WALL"]]:
                 # If the first collision is the right striker and a horizontal wall
-                self.wall_collision(self.right_striker, right_striker_distance_to_walls[1])
+                self.wall_collision(self.right_striker, right_striker_closeness[1])
+                collision = self.COLLISION["RIGHT_STRIKER_HORIZONTAL_WALL"]
 
             else:
                 # If the first collision is the right striker and a vertical wall
-                self.wall_collision(self.right_striker, right_striker_distance_to_walls[3])
+                self.wall_collision(self.right_striker, right_striker_closeness[3])
+                collision = self.COLLISION["RIGHT_STRIKER_VERTICAL_WALL"]
 
             # Recalculate Collisions in case there are any new collisions due to previous ones
-            self.calculate_collisions(frames_remaining)
+            if collision != None: self.calculate_collisions(frames_remaining, collision)
         else:
             # If there were no collisions in this check, increment the positions the rest of the way
             self.increment_positions(frames_remaining)
@@ -369,7 +403,12 @@ class Gamestate:
         """
 
         # Calculate the collisions in order
-        self.calculate_collisions(1, self.ALL_COLLISIONS)
+        self.calculate_collisions(1, None)
+
+        # Decay the speeds
+        self.ball.velocity *= self.SLOWDOWN
+        self.left_striker.velocity *= self.SLOWDOWN
+        self.right_striker.velocity *= self.SLOWDOWN
 
         # Return the current state
         return np.array([])
