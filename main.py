@@ -7,7 +7,7 @@ import sched
 import time
 
 # The inverse of the number of frames per second
-FPS = 1/1024
+FPS = 1/36
 
 # Create a new game
 game = Gamestate(None, None)
@@ -16,8 +16,8 @@ game = Gamestate(None, None)
 window = GameWindow(game)
 
 # Testing
-game.left_striker.velocity = np.random.rand(2)*5
-game.right_striker.velocity = np.random.rand(2)*5
+game.left_striker.velocity = np.array([0.0,0.0])
+game.right_striker.velocity = np.array([-50.0,8.0])
 
 # Define how to run the game
 def run(s):
