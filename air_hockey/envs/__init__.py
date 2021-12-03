@@ -1,2 +1,1 @@
-from AirHockey.envs.air_hockey import *
-from AirHockey.envs.pygame_2D import PyGame2D
+from air_hockey.envs.air_hockey_goal_env import *

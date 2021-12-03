@@ -1,7 +1,7 @@
 import gym
 from gym import spaces
 import numpy as np
-from air_hockey.envs.airhockeygame import AirHockeyGame
+from air_hockey.envs.air_hockey_goal_env import AirHockeyGame
 
 """This file contains the environment class defined by OpenAIGym, for the AirHockey game."""
 

@@ -1,4 +1,5 @@
 import numpy as np
+import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from rein_create import *
 
@@ -10,6 +11,9 @@ model = build_model(states, actions)
 
 # Build the agent
 dnq = build_agent(model, actions)
+
+# Test the agent
+#test_env(5, env)
 
 # Train the model
 dnq.compile(Adam(lr=1e-3), metrics=['mae'])
