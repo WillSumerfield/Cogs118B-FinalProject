@@ -73,17 +73,18 @@ def test_env(episodes, env):
 
         while not done:
             env.render()
-            action = random.rand()*5
-            print(action)
+            action = random.rand()
             n_state, reward, done, info = env.step(action)
             score += reward
 
         print("Episode:{} Score:{}".format(episode, score))
 
+    env.close()
+
 
 def build_agent(model, actions):
     policy = BoltzmannQPolicy()
-    memory = SequentialMemory(limit=10000, window_length=1)
+    memory = SequentialMemory(limit=5000, window_length=1)
     dqn = DQNAgent(model=model, memory=memory, policy=policy, nb_actions=actions, nb_steps_warmup=100,
                    target_model_update=1e-2)
     return dqn

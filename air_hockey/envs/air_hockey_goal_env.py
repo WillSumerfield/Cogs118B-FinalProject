@@ -31,7 +31,7 @@ class AirHockeyGoalEnv(gym.Env):
     Actions:
         Type: Discrete(6)
         Num     Action                  Min                     Max
-        0       Velocity                  0                       5
+        0       wants to move             0                       1
 
     Reward:
         -1 each frame a goal is not scored
@@ -88,7 +88,7 @@ class AirHockeyGoalEnv(gym.Env):
     GOAL_REWARD = 400.0
 
     # The speeds that the striker can go
-    STRIKER_SPEEDS = [0, 5, 10, 15, 20, 25]
+    STRIKER_SPEED = 30
 
     # The maximum value of the pointer
     MAX_POINTER_VALUE = 100
@@ -123,17 +123,17 @@ class AirHockeyGoalEnv(gym.Env):
         self.pointer_position = np.array([0.0, 0.0])
 
         # The action space of the environment
-        self.action_space = gym.spaces.Discrete(6)
+        self.action_space = gym.spaces.Discrete(2)
 
         # The observation space of the environment
         low = np.array(
-            [self.BOARD_CENTER_X, self.BOARD_CENTER_Y, -2 * self.STRIKER_SPEEDS[4], -2 * self.STRIKER_SPEEDS[4],
+            [self.BOARD_CENTER_X, self.BOARD_CENTER_Y, -2 * self.STRIKER_SPEED, -2 * self.STRIKER_SPEED,
              0,
-             0, 0, -self.STRIKER_SPEEDS[4], -self.STRIKER_SPEEDS[4],
+             0, 0, -self.STRIKER_SPEED, -self.STRIKER_SPEED,
              0, 0])
-        high = np.array([self.BOARD_WIDTH, self.BOARD_HEIGHT, self.STRIKER_SPEEDS[4], self.STRIKER_SPEEDS[4],
+        high = np.array([self.BOARD_WIDTH, self.BOARD_HEIGHT, self.STRIKER_SPEED, self.STRIKER_SPEED,
                          self.MAX_COOLDOWN,
-                         self.BOARD_CENTER_X, self.BOARD_CENTER_Y, self.STRIKER_SPEEDS[4], self.STRIKER_SPEEDS[4],
+                         self.BOARD_CENTER_X, self.BOARD_CENTER_Y, self.STRIKER_SPEED, self.STRIKER_SPEED,
                          1, 1])
         self.observation_space = gym.spaces.Box(low, high, dtype=np.float32)
 
@@ -451,7 +451,7 @@ class AirHockeyGoalEnv(gym.Env):
 
     def step(self, action: float):
         """
-        :param action -- velocity
+        :param action -- want_to_move
 
         :returns The current state, reward, and whether the game is complete.
         """
@@ -466,7 +466,7 @@ class AirHockeyGoalEnv(gym.Env):
         if np.array_equal(self.striker.velocity, np.zeros(2)):
             # Set the velocity
             if (self.striker.cooldown == 0) and (round(action) != 0):
-                self.striker.set_velocity(self.STRIKER_SPEEDS[round(action)] * self.pointer_position)
+                self.striker.set_velocity(self.STRIKER_SPEED * self.pointer_position)
         else:
             # Reduce the cooldown
             if self.striker.cooldown > 0:

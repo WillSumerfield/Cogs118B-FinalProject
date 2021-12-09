@@ -1,6 +1,5 @@
 from rein_create import *
 from tensorflow.keras.optimizers import Adam
-import numpy as np
 
 # Create the environment
 env, states, actions = create_env()
@@ -15,8 +14,10 @@ dnq = build_agent(model, actions)
 dnq.compile(Adam(lr=1e-3), metrics=['mae'])
 
 # Load the saved weights
-dnq.load_weights("Reinforcement Testing/dnq_weights.h5f")
+dnq.load_weights("../Models/dnq_weights.h5f")
 
-# Test the saved model
-scores = dnq.test(env, nb_episodes=5, visualize=True)
-print("Mean Score: " + str(np.mean(scores.history['episode_reward'])))
+# Resume training
+dnq.fit(env, nb_steps=50000, visualize=False)
+
+# Save the model
+dnq.save_weights('../Models/dnq_weights.h5f', overwrite=True)

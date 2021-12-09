@@ -1,2 +1,0 @@
-model_checkpoint_path: "dnq_weights.h5f"
-all_model_checkpoint_paths: "dnq_weights.h5f"
