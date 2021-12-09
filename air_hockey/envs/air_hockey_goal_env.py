@@ -8,33 +8,34 @@ from gym.utils import seeding
 class AirHockeyGoalEnv(gym.Env):
     """
     Description:
-        A circular striker starts on a random position of its half of a field.
+        A circular striker starts on a random position of its half of a field. The ball spawns randomly along the
+        center line. The striker can move in the direction which a rotating pointer is facing, at 1 of 5 speeds
         It tries to hit a ball in the center of the field, so that it hits a goal
         region along the vertical wall on the other half of the field.
 
     Observation:
         Type: Box(8)
         Num     Observation             Min                     Max
-        0       Ball X Position         0                       600
-        1       Ball Y Position         0                       400
-        2       Ball X Velocity         -30                      30
-        3       Ball Y Velocity         -30                      30
-        4       Striker Cooldown        0                        50
-        5       Striker X Position      0                       600
-        6       Striker Y Position      0                       400
-        7       Striker X Velocity      -30                      30
-        8       Striker Y Velocity      -30                      30
+        0       Striker X Position        0                     600
+        1       Striker Y Position        0                     400
+        2       Striker X Velocity      -30                      30
+        3       Striker Y Velocity      -30                      30
+        4       Striker Cooldown          0                      50
+        5       Ball X Position           0                     600
+        6       Ball Y Position           0                     400
+        7       Ball X Velocity         -30                      30
+        8       Ball Y Velocity         -30                      30
+        9       Pointer X                 0                       1
+        10      Pointer Y                 0                       1
 
     Actions:
-        Type: Box(2)
+        Type: Discrete(6)
         Num     Action                  Min                     Max
-        0       Striker X Velocity      -30                      30
-        1       Striker Y Velocity      -30                      30
-        2       Wants to Move             0                       1
+        0       Velocity                  0                       5
 
     Reward:
         -1 each frame a goal is not scored
-        1000 when a goal is scored
+        400 when a goal is scored
 
     Starting State:
         All observations are assigned a uniform random value in [-0.05..0.05]
@@ -84,10 +85,13 @@ class AirHockeyGoalEnv(gym.Env):
     LOWEST_SPEED = 0.1
 
     # The reward for scoring a goal
-    GOAL_REWARD = 200.0
+    GOAL_REWARD = 400.0
 
-    # The maximum speed a striker can go in a given dimension
-    MAX_STRIKER_SPEED = 20
+    # The speeds that the striker can go
+    STRIKER_SPEEDS = [0, 5, 10, 15, 20, 25]
+
+    # The maximum value of the pointer
+    MAX_POINTER_VALUE = 100
 
     # The cooldown in frames after the striker has stopped moving
     MAX_COOLDOWN = 50
@@ -114,16 +118,23 @@ class AirHockeyGoalEnv(gym.Env):
         # Create the Ball
         self.ball = self.Ball(self.np_random)
 
+        # Set the starting pointer position
+        self.pointer_angle = self.np_random.randint(self.MAX_POINTER_VALUE)
+        self.pointer_position = np.array([0.0, 0.0])
+
         # The action space of the environment
-        self.action_space = gym.spaces.Box(np.zeros(3), np.array([1.0, 1.0, 1.0]), dtype=np.float32)
+        self.action_space = gym.spaces.Discrete(6)
 
         # The observation space of the environment
-        low = np.array([self.BOARD_CENTER_X, self.BOARD_CENTER_Y, -2*self.MAX_STRIKER_SPEED, -2*self.MAX_STRIKER_SPEED,
-                        0,
-                        0, 0, -self.MAX_STRIKER_SPEED, -self.MAX_STRIKER_SPEED])
-        high = np.array([self.BOARD_WIDTH, self.BOARD_HEIGHT, self.MAX_STRIKER_SPEED, self.MAX_STRIKER_SPEED,
+        low = np.array(
+            [self.BOARD_CENTER_X, self.BOARD_CENTER_Y, -2 * self.STRIKER_SPEEDS[4], -2 * self.STRIKER_SPEEDS[4],
+             0,
+             0, 0, -self.STRIKER_SPEEDS[4], -self.STRIKER_SPEEDS[4],
+             0, 0])
+        high = np.array([self.BOARD_WIDTH, self.BOARD_HEIGHT, self.STRIKER_SPEEDS[4], self.STRIKER_SPEEDS[4],
                          self.MAX_COOLDOWN,
-                         self.BOARD_CENTER_X, self.BOARD_CENTER_Y, self.MAX_STRIKER_SPEED, self.MAX_STRIKER_SPEED])
+                         self.BOARD_CENTER_X, self.BOARD_CENTER_Y, self.STRIKER_SPEEDS[4], self.STRIKER_SPEEDS[4],
+                         1, 1])
         self.observation_space = gym.spaces.Box(low, high, dtype=np.float32)
 
     class Striker:
@@ -219,7 +230,6 @@ class AirHockeyGoalEnv(gym.Env):
             self.position = np.array([AirHockeyGoalEnv.BOARD_CENTER_X,
                                       (rng.rand() * AirHockeyGoalEnv.BALL_STARTING_Y_RANGE)
                                       + AirHockeyGoalEnv.BALL_MIN_STARTING_Y])
-
 
         def find_wall_closeness(self) -> typing.Tuple[float, int, float, int]:
             """Returns the striker's closeness to the horizontal and vertical wall in it's direction,
@@ -433,25 +443,30 @@ class AirHockeyGoalEnv(gym.Env):
                                self.striker.velocity[0], self.striker.velocity[1],
                                self.striker.cooldown,
                                self.ball.position[0], self.ball.position[1],
-                               self.ball.velocity[0], self.ball.velocity[1]])
+                               self.ball.velocity[0], self.ball.velocity[1],
+                               self.pointer_position[0], self.pointer_position[1]])
         return self.state
 
     # region Core Methods
 
-    def step(self, action):
+    def step(self, action: float):
         """
-        :param action  -- A np array containing the actions of the agents, in the form
-        [velocity_x (float), velocity_y (float), want_to_move (float)]
+        :param action -- velocity
 
-        :returns A np array with the form: [striker_x, striker_y, striker_x_velocity, striker_y_velocity,
-                                            ball_x, ball_y, ball_x_velocity, ball_y_velocity]
+        :returns The current state, reward, and whether the game is complete.
         """
+
+        # Calculate the pointer direction
+        self.pointer_angle += 1
+        angle = self.pointer_angle * (2 * math.pi) / self.MAX_POINTER_VALUE
+        self.pointer_position[0] = math.cos(angle)
+        self.pointer_position[1] = math.sin(angle)
 
         # If the striker is not moving...
         if np.array_equal(self.striker.velocity, np.zeros(2)):
             # Set the velocity
-            if action[2] > 0.5 and self.striker.cooldown == 0:
-                self.striker.set_velocity(action[:2] * self.MAX_STRIKER_SPEED)
+            if (self.striker.cooldown == 0) and (round(action) != 0):
+                self.striker.set_velocity(self.STRIKER_SPEEDS[round(action)] * self.pointer_position)
         else:
             # Reduce the cooldown
             if self.striker.cooldown > 0:
@@ -528,15 +543,31 @@ class AirHockeyGoalEnv(gym.Env):
             self.viewer.add_geom(render_striker)
 
             # Render the goal region
-            l, r, t, b = (-goal_width, 0, self.GOAL_MAX_Y, self.GOAL_MIN_Y)
-            render_goal = rendering.make_polygon([(l, b), (l, t), (r, t), (r, b)])
+            l, r, t, b = self.BOARD_WIDTH-goal_width, self.BOARD_WIDTH, self.GOAL_MAX_Y, self.GOAL_MIN_Y
+            render_goal = rendering.FilledPolygon([(l, b), (l, t), (r, t), (r, b)])
+            render_goal.set_color(0.5, 1, 0.2)
             self.viewer.add_geom(render_goal)
+
+            # Render the board center
+            render_center = rendering.make_polyline([(self.BOARD_CENTER_X, 0),
+                                                     (self.BOARD_CENTER_X, self.BOARD_HEIGHT)])
+            self.viewer.add_geom(render_center)
+
+            # Render the pointer
+            render_pointer = rendering.make_polyline([(self.striker.position[0], self.striker.position[1]),
+                                                      (self.striker.position[0] + self.pointer_position[0] * 20,
+                                                       self.striker.position[1] + self.pointer_position[1] * 20)])
+            self.viewer.add_geom(render_pointer)
+            self._pointer_geom = render_pointer
 
         # Update the positions of the ball and striker
         self.balltrans.set_translation(self.ball.position[0] * scale,
                                        self.ball.position[1] * scale)
         self.striker_trans.set_translation(self.striker.position[0] * scale,
                                            self.striker.position[1] * scale)
+        self._pointer_geom.v = [(self.striker.position[0], self.striker.position[1]),
+                                (self.striker.position[0] + self.pointer_position[0] * 40,
+                                 self.striker.position[1] + self.pointer_position[1] * 40)]
 
         return self.viewer.render(return_rgb_array=mode == "rgb_array")
 
