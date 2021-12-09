@@ -3,6 +3,7 @@
 import math
 import typing
 import numpy as np
+from multiprocessing import Process, Array
 
 
 class Gamestate:
@@ -41,6 +42,9 @@ class Gamestate:
 
     # The magnitude of speed lost per frame 
     SLOWDOWN = 0.995
+
+    # The speed below which will be rounded to 0
+    LOWEST_SPEED = 0.001
 
     # endregion Environment Positions
 
@@ -290,16 +294,18 @@ class Gamestate:
         detected.
         """
 
-        # A list of collisions to check
-        collision_list = [self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE,
-                          self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE]
+        # A list of collisions to check, in shared memory for multiprocessing
+        collision_list = Array('f', [self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE,
+                                     self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE, self.NOT_CLOSE], lock=False)
 
         # Calculate how close everything will be to one another, in terms of frames
+        # Create subprocesses for each, in order to cut down on tick time
 
         # Check for ball-striker collisions
         if previous_collision != self.COLLISION["BALL_LEFT_STRIKER"]:
-            collision_list[self.COLLISION["BALL_LEFT_STRIKER"]] = \
-                self.ball_distance_to_striker(self.left_striker)
+            ball_left_striker_p = \
+                Process(target=lambda x: (x := self.ball_distance_to_striker(self.left_striker)), args=[collision_list[self.COLLISION["BALL_LEFT_STRIKER"]]])
+            ball_left_striker_p.start()
         if previous_collision != self.COLLISION["BALL_RIGHT_STRIKER"]: 
             collision_list[self.COLLISION["BALL_RIGHT_STRIKER"]] = \
                 self.ball_distance_to_striker(self.right_striker)
@@ -324,6 +330,9 @@ class Gamestate:
             collision_list[self.COLLISION["RIGHT_STRIKER_HORIZONTAL_WALL"]] = right_striker_closeness[0]
         if previous_collision != self.COLLISION["RIGHT_STRIKER_VERTICAL_WALL"]:
             collision_list[self.COLLISION["RIGHT_STRIKER_VERTICAL_WALL"]] = right_striker_closeness[2]
+
+        # Wait for subprocesses
+        ball_left_striker_p.join()
 
         # Sort the smallest distance
         shortest_distance = min(collision_list)
@@ -409,6 +418,20 @@ class Gamestate:
         self.ball.velocity *= self.SLOWDOWN
         self.left_striker.velocity *= self.SLOWDOWN
         self.right_striker.velocity *= self.SLOWDOWN
+
+        # Check for near 0 values
+        if -self.LOWEST_SPEED <= self.ball.velocity[0] <= self.LOWEST_SPEED: 
+            self.ball.velocity[0] = 0
+        if -self.LOWEST_SPEED <= self.ball.velocity[1] <= self.LOWEST_SPEED: 
+            self.ball.velocity[1] = 0
+        if -self.LOWEST_SPEED <= self.left_striker.velocity[0] <= self.LOWEST_SPEED: 
+            self.left_striker.velocity[0] = 0
+        if -self.LOWEST_SPEED <= self.left_striker.velocity[1] <= self.LOWEST_SPEED: 
+            self.left_striker.velocity[1] = 0
+        if -self.LOWEST_SPEED <= self.right_striker.velocity[0] <= self.LOWEST_SPEED: 
+            self.right_striker.velocity[0] = 0
+        if -self.LOWEST_SPEED <= self.right_striker.velocity[1] <= self.LOWEST_SPEED: 
+            self.right_striker.velocity[1] = 0
 
         # Return the current state
         return np.array([])
